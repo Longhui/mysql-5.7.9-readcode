@@ -131,6 +131,7 @@ public:
 
 enum enum_mdl_type {
   /*
+   * x意向锁, scope锁
     An intention exclusive metadata lock. Used only for scoped locks.
     Owner of this type of lock can acquire upgradable exclusive locks on
     individual objects.
@@ -139,6 +140,7 @@ enum enum_mdl_type {
   */
   MDL_INTENTION_EXCLUSIVE= 0,
   /*
+   * 只读取元数据, 不读取表数据
     A shared metadata lock.
     To be used in cases when we are interested in object metadata only
     and there is no intention to access object data (e.g. for stored
@@ -162,6 +164,8 @@ enum enum_mdl_type {
   */
   MDL_SHARED,
   /*
+   * 只读取元数据,不读取表数据.pending优先级与X lock相同,容易与x lock产生饥饿
+   * 等待和死锁.
     A high priority shared metadata lock.
     Used for cases when there is no intention to access object data (i.e.
     data in the table).
@@ -179,6 +183,7 @@ enum enum_mdl_type {
   */
   MDL_SHARED_HIGH_PRIO,
   /*
+   * 可以读元数据, 需要读取表数据, 如select, 子查询, lock table...read等.
     A shared metadata lock for cases when there is an intention to read data
     from table.
     A connection holding this kind of lock can read table metadata and read
@@ -189,7 +194,7 @@ enum enum_mdl_type {
     statements.
   */
   MDL_SHARED_READ,
-  /*
+  /*可以读元数据, 需要修改表数据, 如insert, update, delete, select...for update.
     A shared metadata lock for cases when there is an intention to modify
     (and not just read) data in the table.
     A connection holding SW lock can read table metadata and modify or read
@@ -200,12 +205,15 @@ enum enum_mdl_type {
   */
   MDL_SHARED_WRITE,
   /*
+   * 与SW作用相同,但是pending lock优先级比SRO要低.
     A version of MDL_SHARED_WRITE lock which has lower priority than
     MDL_SHARED_READ_ONLY locks. Used by DML statements modifying
     tables and using the LOW_PRIORITY clause.
   */
   MDL_SHARED_WRITE_LOW_PRIO,
   /*
+   *作用与MDL_SHARED相同,但是可以升级成SNW, SNRW X lock, 从而进行更新操作. 用于alter
+   * table的第一阶段
     An upgradable shared metadata lock which allows concurrent updates and
     reads of table data.
     A connection holding this kind of lock can read table metadata and read
@@ -217,12 +225,17 @@ enum enum_mdl_type {
   */
   MDL_SHARED_UPGRADABLE,
   /*
+   * 读取表数据,并且阻塞对表的修改(元数据,和数据), 用于lock tables read.
     A shared metadata lock for cases when we need to read data from table
     and block all concurrent modifications to it (for both data and metadata).
     Used by LOCK TABLES READ statement.
   */
   MDL_SHARED_READ_ONLY,
   /*
+   * 可读取表元数据和表数据,
+   * 阻塞对表数据的更新,
+   * 可升级成X lock.
+   * 用户alter table的第一个阶段, 拷贝表数据,允许并发读表,但是不能修改.
     An upgradable shared metadata lock which blocks all attempts to update
     table data, allowing reads.
     A connection holding this kind of lock can read table metadata and read
@@ -237,6 +250,10 @@ enum enum_mdl_type {
   */
   MDL_SHARED_NO_WRITE,
   /*
+   * 可读取表元数据和数据
+   * 阻塞对表数据的读和写, 不阻塞对元数据的读
+   * 可升级成X锁
+   * 同于lock tables write
     An upgradable shared metadata lock which allows other connections
     to access table metadata, but not data.
     It blocks all attempts to read or update table data, while allowing
@@ -249,6 +266,9 @@ enum enum_mdl_type {
   */
   MDL_SHARED_NO_READ_WRITE,
   /*
+   * 元数据排它锁,
+   * 可修改表的元数据和数据, 阻塞其它所有的锁.
+   * 用于create/drop/rename table 语句和ddl的某个阶段.
     An exclusive metadata lock.
     A connection holding this lock can modify both table's metadata and data.
     No other type of metadata lock can be granted while this lock is held.
@@ -1063,12 +1083,14 @@ private:
     In principle, this is redundant, as information can be found
     by inspecting waiting queues, but we'd very much like it to be
     readily available to the wait-for graph iterator.
+    context当前正在等待的资源
    */
   MDL_wait_for_subgraph *m_waiting_for;
   /**
     Thread's pins (a.k.a. hazard pointers) to be used by lock-free
     implementation of MDL_map::m_locks container. NULL if pins are
     not yet allocated from container's pinbox.
+    一种弱化的锁机制
   */
   LF_PINS *m_pins;
   /**
@@ -1094,6 +1116,9 @@ public:
   bool visit_subgraph(MDL_wait_for_graph_visitor *dvisitor);
 
   /** Inform the deadlock detector there is an edge in the wait-for graph. */
+  /**
+   * 记录当前等待的资源
+   */
   void will_wait_for(MDL_wait_for_subgraph *waiting_for_arg)
   {
     /*
