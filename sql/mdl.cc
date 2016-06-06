@@ -2021,7 +2021,7 @@ void MDL_lock::Ticket_list::remove_ticket(MDL_ticket *ticket)
         fair scheduling among requests with the same priority.
         It tries to grant lock from the head of waiters list, while
         add_ticket() adds new requests to the back of this list.
-唤醒等待的锁请求, 并选择一个进行grant
+唤醒等待的ticket请求, 并选择合适的进行grant
 */
 
 void MDL_lock::reschedule_waiters()
@@ -2049,6 +2049,9 @@ void MDL_lock::reschedule_waiters()
 */
   while ((ticket = it++))
   {
+    /**
+     * 依次遍历waiting队列中的ticket,选择符合条件的进行grant
+     */
     if (can_grant_lock(ticket->get_type(), ticket->get_ctx()))
     {
       if (!ticket->get_ctx()->m_wait.set_status(MDL_wait::GRANTED))
@@ -2671,7 +2674,9 @@ void MDL_lock::remove_ticket(MDL_context *ctx, LF_PINS *pins,
 {
   bool is_obtrusive = is_obtrusive_lock(ticket->get_type());
   bool is_singleton = mdl_locks.is_lock_object_singleton(&key);
-
+/**
+ * 从队列中删除
+ */
   mysql_prlock_wrlock(&m_rwlock);
   (this->*list).remove_ticket(ticket);
 
@@ -2689,7 +2694,9 @@ void MDL_lock::remove_ticket(MDL_context *ctx, LF_PINS *pins,
 */
   bool last_slow_path = m_granted.is_empty() && m_waiting.is_empty();
   bool last_use = false;
-
+/**
+ * 最后一个slow path或者obtrusive的ticket,需要修改lock的状态
+ */
   if (last_slow_path || last_obtrusive)
   {
     fast_path_state_t old_state = m_fast_path_state;
@@ -3675,7 +3682,9 @@ MDL_context::acquire_lock(MDL_request *mdl_request, ulong lock_wait_timeout)
   has MDL_lock::m_rwlock write-locked.
 */
   lock = ticket->m_lock;
-
+/**
+ * ticket加入到lock的waiting队列中
+ */
   lock->m_waiting.add_ticket(ticket);
 
 /*
@@ -3731,6 +3740,9 @@ MDL_context::acquire_lock(MDL_request *mdl_request, ulong lock_wait_timeout)
 
       if (lock->needs_connection_check() && !m_owner->is_connected())
       {
+        /**
+         * 客户端连接断开
+         */
 /*
   If this is user-level lock and the client is disconnected don't wait
   forever: assume it's the same as statement being killed (this differs
@@ -3780,6 +3792,9 @@ MDL_context::acquire_lock(MDL_request *mdl_request, ulong lock_wait_timeout)
 
   if (wait_status != MDL_wait::GRANTED)
   {
+    /**
+     * 没有获得锁, 从waiting队列中删除
+     */
     lock->remove_ticket(this, m_pins, &MDL_lock::m_waiting, ticket);
     MDL_ticket::destroy(ticket);
     switch (wait_status)
@@ -3812,6 +3827,7 @@ MDL_context::acquire_lock(MDL_request *mdl_request, ulong lock_wait_timeout)
   State of MDL_lock object is already being appropriately updated by a
   concurrent thread (@sa MDL_lock:reschedule_waiters()).
   So all we need to do is to update MDL_context and MDL_request objects.
+  获得锁
 */
   DBUG_ASSERT(wait_status == MDL_wait::GRANTED);
 
@@ -4094,6 +4110,7 @@ MDL_context::upgrade_shared_lock(MDL_ticket *mdl_ticket,
  * 3, 找到lock的grant队列和waiting队列中所有与m_wairing_for不兼容的ticket(遍历深度+1)
  * 4, 如果遍历深度>32, 或者不兼容ticket与起点context的m_waiting_for相同, 则找到死锁.否则下一步.
  * 5, 依次找到不兼容ticket对应的context,并返回1.
+ * 6, 发现死锁环后,选择环上权重最小的节点位为victim.
  */
 bool MDL_lock::visit_subgraph(MDL_ticket *waiting_ticket,
                               MDL_wait_for_graph_visitor *gvisitor)
@@ -4428,6 +4445,9 @@ void MDL_context::release_lock(enum_mdl_duration duration, MDL_ticket *ticket)
     {
       if (old_state & MDL_lock::HAS_OBTRUSIVE)
       {
+        /**
+         * 之前有obtrusive的ticket,但检查时已经被释放了,则需要reschedule_waiters
+         */
         mysql_prlock_wrlock(&lock->m_rwlock);
 /*
   It is possible that obtrusive lock has gone away since we have
@@ -4463,6 +4483,9 @@ void MDL_context::release_lock(enum_mdl_duration duration, MDL_ticket *ticket)
 
     end_fast_path:
 /* Don't count singleton MDL_lock objects as unused. */
+      /**
+       * lock被完全释放,没有引用
+       */
     if (last_use && !is_singleton)
     {
       mdl_locks.lock_object_unused(this, m_pins);
@@ -4470,7 +4493,7 @@ void MDL_context::release_lock(enum_mdl_duration duration, MDL_ticket *ticket)
   }
   else
   {
-/*slow path分配的ticket从队列中删除
+/*slow path分配的ticket从granted队列中删除
   Lock request represented by ticket was acquired using "slow path"
   or ticket was materialized later. We need to use "slow path" release.
 */
