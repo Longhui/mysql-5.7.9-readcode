@@ -3471,7 +3471,7 @@ MDL_context::clone_ticket(MDL_request *mdl_request)
   are not allocated already.
 */
 /*
- * pin是做什么用的?
+ * pin是做什么用的?, pin是hazard pointer的应用
  */
   if (fix_pins())
   {
@@ -3983,7 +3983,9 @@ bool MDL_context::acquire_locks(MDL_request_list *mdl_requests,
   @retval FALSE  Success
   @retval TRUE   Failure (thread was killed)
 */
-
+/**
+ *  升级锁类型
+ */
 bool
 MDL_context::upgrade_shared_lock(MDL_ticket *mdl_ticket,
                                  enum_mdl_type new_type,
@@ -4007,7 +4009,9 @@ MDL_context::upgrade_shared_lock(MDL_ticket *mdl_ticket,
   MDL_REQUEST_INIT_BY_KEY(&mdl_new_lock_request,
                           &mdl_ticket->m_lock->key, new_type,
                           MDL_TRANSACTION);
-
+/**
+ * 加新类型锁
+ */
   if (acquire_lock(&mdl_new_lock_request, lock_wait_timeout))
     DBUG_RETURN(TRUE);
 
@@ -4020,6 +4024,9 @@ MDL_context::upgrade_shared_lock(MDL_ticket *mdl_ticket,
 
 /* Merge the acquired and the original lock. @todo: move to a method. */
   mysql_prlock_wrlock(&lock->m_rwlock);
+  /**
+   * 从grant队列中删除新的ticket
+   */
   if (is_new_ticket)
   {
     lock->m_granted.remove_ticket(mdl_new_lock_request.ticket);
@@ -4039,6 +4046,9 @@ MDL_context::upgrade_shared_lock(MDL_ticket *mdl_ticket,
   materializes tickets normally. Still we cover this case
   for completeness.
 */
+  /**
+   * 从grant队列中删除旧的ticket
+   */
   if (mdl_ticket->m_is_fast_path)
   {
 /*
@@ -4069,6 +4079,9 @@ MDL_context::upgrade_shared_lock(MDL_ticket *mdl_ticket,
     }
   }
 
+  /**
+   * 将旧的ticket设置成新类型,加入到grant队列中
+   */
   mdl_ticket->m_type = new_type;
 
   lock->m_granted.add_ticket(mdl_ticket);
