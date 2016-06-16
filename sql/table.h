@@ -573,6 +573,14 @@ struct TABLE_SHARE
     corresponding Table_cache. False sharing should not be a problem in
     this case as elements of this array are supposed to be updated rarely.
   */
+  /**
+   * 1. 全局结构table_cache_manager中有64个table_cache结构
+   * 2. 每个table_cache中以hash的方式管理很多个table_cache_elements
+   * 3. 每个table_cache_elements管理一个table_share和多个table结构
+   * 4. 因此一个table_share可以在多个table_cache中,
+   * cache_element中每个元素对应一个table_cache, 内容为table_share
+   * 对应的element指针
+   */
   Table_cache_element **cache_element;
 
   /* The following is copied to each TABLE on OPEN */
@@ -1119,6 +1127,8 @@ public:
    for the duration of a statement and is reset to 0 once it is closed by
    the same statement. A non-zero query_id is used to control which tables
    in the list of pre-opened and locked tables are actually being used.
+
+   0表示未被使用
   */
   query_id_t	query_id;
 

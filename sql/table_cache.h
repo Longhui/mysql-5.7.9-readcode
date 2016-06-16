@@ -403,7 +403,10 @@ bool Table_cache::add_used_table(THD *thd, TABLE *table)
 
    @note Caller should own lock on the table cache.
 */
-
+/**
+ * 从table cache删除一个table, 如果table结构都删完了则删除table_share与
+ * table cache的对应关系
+ */
 void Table_cache::remove_table(TABLE *table)
 {
   Table_cache_element *el=
@@ -459,7 +462,8 @@ void Table_cache::remove_table(TABLE *table)
   @retval NULL     - no unused TABLE object was found, "share" parameter
                      contains pointer to TABLE_SHARE for this table if there
                      are used TABLE objects in cache and NULL otherwise.
-*/
+找一个与table_share对应的unused able对象.
+ */
 
 TABLE* Table_cache::get_table(THD *thd, my_hash_value_type hash_value,
                               const char *key, size_t key_length,
@@ -485,15 +489,19 @@ TABLE* Table_cache::get_table(THD *thd, my_hash_value_type hash_value,
     /*
       Unlink table from list of unused TABLE objects for this
       table in this cache.
+      从Table_cache_element的free_tables链表中删除
     */
     el->free_tables.remove(table);
 
-    /* Unlink table from unused tables list for this cache. */
+    /* Unlink table from unused tables list for this cache.
+     * 从table cache的unused_table链表中删除.
+     * */
     unlink_unused_table(table);
 
     /*
       Add table to list of used TABLE objects for this table
       in the table cache.
+      加入到Table_cache_element的used_tables链表
     */
     el->used_tables.push_front(table);
 

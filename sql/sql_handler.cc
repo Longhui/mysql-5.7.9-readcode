@@ -941,6 +941,9 @@ void mysql_ha_rm_tables(THD *thd, TABLE_LIST *tables)
   @param thd Thread identifier.
   @param tables The list of tables to flush.
 */
+/**
+ * 从HANDLER hash表中关闭table的所有游标 ??
+ */
 
 void mysql_ha_flush_tables(THD *thd, TABLE_LIST *all_tables)
 {

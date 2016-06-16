@@ -281,7 +281,9 @@ void Table_cache_manager::lock_all_and_tdc()
 {
   for (uint i= 0; i < table_cache_instances; i++)
     m_table_cache[i].lock();
-
+/**
+ * 锁住对table_def_cache的访问
+ */
   mysql_mutex_lock(&LOCK_open);
 }
 
@@ -335,6 +337,9 @@ void Table_cache_manager::assert_owner_all_and_tdc()
    @note Caller should own LOCK_open and locks on all table cache
          instances.
 */
+/**
+ * 删除一个table_share对应的所有unused table
+ */
 void Table_cache_manager::free_table(THD *thd,
                                      enum_tdc_remove_table_type remove_type,
                                      TABLE_SHARE *share)
@@ -349,6 +354,7 @@ void Table_cache_manager::free_table(THD *thd,
     iteration over this array safe, even when share is destroyed in
     the middle of iteration, we create copy of this array on the stack
     and iterate over it.
+    找到table_share对应的所有Table_cache_element
   */
   memcpy(&cache_el, share->cache_element,
          table_cache_instances * sizeof(Table_cache_element *));
@@ -357,6 +363,9 @@ void Table_cache_manager::free_table(THD *thd,
   {
     if (cache_el[i])
     {
+      /**
+       * 删除Table_cache_element中所有的free tables
+       */
       Table_cache_element::TABLE_list::Iterator it(cache_el[i]->free_tables);
       TABLE *table;
 

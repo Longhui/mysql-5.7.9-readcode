@@ -4478,7 +4478,11 @@ end:
   @retval FALSE - Success.
   @retval TRUE  - Error (OOM, deadlock, timeout, etc...).
 */
-
+/**
+ * wait过程与mdl_lock wait相似, 死锁检查过程要考虑mdl_lock wait的情况,
+ * 防止形成死锁等待环. 因为一个table_share更新version要等待所有引用它的
+ * table对象释放??
+ */
 bool TABLE_SHARE::wait_for_old_version(THD *thd, struct timespec *abstime,
                                        uint deadlock_weight)
 {
